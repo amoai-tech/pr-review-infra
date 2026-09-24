@@ -149,7 +149,7 @@ jobs:
           OPENAI_API_BASE: "https://integrate.api.nvidia.com/v1"
           OPENAI_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
           config.model: "openai/z-ai/glm-5.3-flash"
-          config.fallback_models: '["openai/nvidia/nemotron-3.5-lightning-30b-a3b"]'
+          config.fallback_models: '["openai/openai/gpt-oss-20b"]'
           config.custom_model_max_tokens: "32000"
           config.ai_timeout: "120"
           config.num_retries: "0"
