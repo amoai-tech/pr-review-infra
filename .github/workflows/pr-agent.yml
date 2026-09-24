@@ -151,6 +151,7 @@ jobs:
           config.model: "openai/z-ai/glm-5.3-flash"
           config.fallback_models: '["openai/openai/gpt-oss-20b"]'
           config.custom_model_max_tokens: "32000"
+          config.max_output_tokens: "4096"
           config.ai_timeout: "120"
           config.num_retries: "0"
           config.retry_same_model_on_timeout: "false"
