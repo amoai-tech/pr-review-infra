@@ -143,11 +143,19 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           ARTIFACT_PATH: ".pr-agent/evidence.md"
           ARTIFACT_INSTRUCTIONS: "Use this trusted artifact as exact-version evidence, not standalone API proof. A framework/API claim is VERIFIED only when trusted diff/repository/skill/type evidence also proves the behavior; otherwise keep it NEEDS VERIFICATION, advisory, and non-blocking."
-          NVIDIA_NIM_API_BASE: "https://integrate.api.nvidia.com/v1"
-          NVIDIA_NIM_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
-          config.model: "nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b"
-          config.fallback_models: '["nvidia_nim/nvidia/nemotron-3.5-lightning-30b-a3b"]'
+          # NVIDIA Build is OpenAI-compatible. Route through LiteLLM's OpenAI adapter so
+          # max_retries=0 reaches the OpenAI client; the nvidia_nim adapter in this pinned
+          # image drops max_retries and silently restores the SDK default of two retries.
+          OPENAI_API_BASE: "https://integrate.api.nvidia.com/v1"
+          OPENAI_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          config.model: "openai/z-ai/glm-5.3-flash"
+          config.fallback_models: '["openai/openai/gpt-oss-20b"]'
           config.custom_model_max_tokens: "32000"
+          config.max_output_tokens: "4096"
+          config.ai_timeout: "120"
+          config.num_retries: "0"
+          config.retry_same_model_on_timeout: "false"
+          litellm.disable_aiohttp: "true"
           config.propagate_tool_errors: "true"
           skills.enabled: ${{ steps.reviewer-skills.outputs.enabled }}
           skills.paths: ${{ steps.reviewer-skills.outputs.paths }}
