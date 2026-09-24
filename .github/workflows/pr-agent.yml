@@ -145,9 +145,12 @@ jobs:
           ARTIFACT_INSTRUCTIONS: "Use this trusted artifact as exact-version evidence, not standalone API proof. A framework/API claim is VERIFIED only when trusted diff/repository/skill/type evidence also proves the behavior; otherwise keep it NEEDS VERIFICATION, advisory, and non-blocking."
           NVIDIA_NIM_API_BASE: "https://integrate.api.nvidia.com/v1"
           NVIDIA_NIM_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
-          config.model: "nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b"
+          config.model: "nvidia_nim/z-ai/glm-5.3-flash"
           config.fallback_models: '["nvidia_nim/nvidia/nemotron-3.5-lightning-30b-a3b"]'
           config.custom_model_max_tokens: "32000"
+          config.ai_timeout: "120"
+          config.num_retries: "0"
+          config.retry_same_model_on_timeout: "false"
           config.propagate_tool_errors: "true"
           skills.enabled: ${{ steps.reviewer-skills.outputs.enabled }}
           skills.paths: ${{ steps.reviewer-skills.outputs.paths }}
