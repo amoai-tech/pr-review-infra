@@ -137,6 +137,11 @@ jobs:
           CHANGED_FILES_JSON: ${{ steps.changed-files.outputs.files }}
         run: node scripts/select-pr-agent-skills.mjs >> "$GITHUB_OUTPUT"
 
+      - name: Record review publication boundary
+        id: review-start
+        shell: bash
+        run: echo "epoch_ms=$(($(date +%s) * 1000))" >> "$GITHUB_OUTPUT"
+
       - name: Review pull request
         uses: docker://pragent/pr-agent@sha256:548b760b81ab4b3f729182428695ccc1194bbf87528c2b1e2b2b07e5223af7b6 # v0.45.0
         env:
@@ -158,6 +163,79 @@ jobs:
           github_action_config.pr_actions: '["opened", "reopened", "ready_for_review"]'
           github_action_config.handle_push_trigger: "true"
           github_action_config.push_commands: ${{ steps.review-mode.outputs.push_commands }}
+
+      - name: Stamp exact review identity
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          REVIEW_COMMAND: ${{ steps.review-mode.outputs.review_command }}
+          REVIEW_STARTED_AT: ${{ steps.review-start.outputs.epoch_ms }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const expectedCommand = process.env.REVIEW_COMMAND || "/review";
+            const startedAt = Number(process.env.REVIEW_STARTED_AT);
+            const baseSha = process.env.BASE_SHA;
+            const headSha = process.env.HEAD_SHA;
+            const envelope = (type) =>
+              `<!-- mde-agent-review:v1 base=${baseSha} head=${headSha} command="${expectedCommand}" type=${type} -->`;
+            const isStandalone = (body) =>
+              body.includes("## Standalone PR Review") &&
+              body.includes("PR-Agent could not safely update the persistent review") &&
+              body.includes("## MDE PR Review");
+            const isIncrementalSkip = (body) =>
+              body.includes("Incremental Review Skipped") &&
+              (body.includes("No files were changed since the previous PR Review") ||
+               body.includes("No files were changed since the [previous PR Review]("));
+            const commandForBody = (body) => {
+              if (body.includes("<!-- pr-agent:review:full -->")) return "/review";
+              if (body.includes("<!-- pr-agent:review:incremental -->") || isIncrementalSkip(body)) return "/review -i";
+              return null;
+            };
+
+            let candidate = null;
+            for (let attempt = 1; attempt <= 3 && !candidate; attempt += 1) {
+              const comments = await github.paginate(github.rest.issues.listComments, {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                per_page: 100,
+              });
+              const fresh = comments.filter((comment) =>
+                comment.user?.login === "github-actions[bot]" &&
+                new Date(comment.updated_at).getTime() >= startedAt &&
+                (isStandalone(comment.body ?? "") || commandForBody(comment.body ?? "") === expectedCommand),
+              );
+              if (fresh.length > 1) {
+                core.setFailed(`INVALID_ENVELOPE: ${fresh.length} fresh PR-Agent review results are ambiguous`);
+                return;
+              }
+              candidate = fresh[0] ?? null;
+              if (!candidate && attempt < 3) await new Promise((resolve) => setTimeout(resolve, 2000));
+            }
+            if (!candidate) {
+              core.setFailed("NO_REVIEW: PR-Agent completed without a fresh review result to stamp");
+              return;
+            }
+
+            const original = candidate.body ?? "";
+            const type = isStandalone(original) ? "standalone" : "canonical";
+            if (!original.trim()) {
+              core.setFailed("EMPTY_REVIEW: PR-Agent published an empty review result");
+              return;
+            }
+            const body = `${envelope(type)}\n${original}`;
+            try {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: candidate.id,
+                body,
+              });
+            } catch (error) {
+              core.setFailed(`GITHUB_UPDATE_FAILED: ${error.message}`);
+            }
 
   verify-review-result:
     name: verify-review-result
@@ -193,7 +271,7 @@ jobs:
               run_id: context.runId,
             });
             const startedAt = new Date(run.run_started_at).getTime();
-            const maxAttempts = 10;
+            const maxAttempts = 3;
             let comments = [];
             let result = { ok: false };
             for (let attempt = 1; attempt <= maxAttempts && !result.ok; attempt += 1) {
@@ -208,14 +286,18 @@ jobs:
                 startedAt,
                 reviewCommand: process.env.REVIEW_COMMAND || "/review",
                 baseSha: context.payload.pull_request.base.sha,
+                headSha: context.payload.pull_request.head.sha,
               });
-              if (!result.ok && attempt < maxAttempts) {
+              if (!result.ok && result.code === "NO_REVIEW" && attempt < maxAttempts) {
                 core.info(`PR-Agent review not visible yet; retrying (${attempt}/${maxAttempts})`);
-                await new Promise((resolve) => setTimeout(resolve, 10000));
+                await new Promise((resolve) => setTimeout(resolve, 5000));
+                continue;
               }
+              if (!result.ok && result.code !== "NO_REVIEW") break;
             }
             if (!result.ok) {
-              core.setFailed("PR-Agent did not publish a fresh review valid for the current base context");
+              const code = result.code === "NO_REVIEW" ? "REVIEW_TIMEOUT" : (result.code || "INVALID_ENVELOPE");
+              core.setFailed(`PR-Agent verification failed [${code}]: ${result.reason || "unknown review verification failure"}`);
               return;
             }
             const existing = comments.find((comment) =>
