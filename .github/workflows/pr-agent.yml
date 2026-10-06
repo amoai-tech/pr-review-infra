@@ -143,7 +143,7 @@ jobs:
         run: echo "epoch_ms=$(($(date +%s) * 1000))" >> "$GITHUB_OUTPUT"
 
       - name: Review pull request
-        uses: docker://pragent/pr-agent@sha256:548b760b81ab4b3f729182428695ccc1194bbf87528c2b1e2b2b07e5223af7b6 # v0.45.0
+        uses: docker://pragent/pr-agent@sha256:65e5b196e38cecd7df8a71fe29942052e081a0c6645132c2ac874df60b1760c7 # v0.46.0
         env:
           GITHUB_TOKEN: ${{ github.token }}
           ARTIFACT_PATH: ".pr-agent/evidence.md"
@@ -153,7 +153,11 @@ jobs:
           config.model: "nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b"
           config.fallback_models: '["nvidia_nim/nvidia/nemotron-3.5-lightning-30b-a3b"]'
           config.custom_model_max_tokens: "32000"
+          config.ai_timeout: "120"
+          config.retry_same_model_on_timeout: "false"
+          config.num_retries: "0"
           config.propagate_tool_errors: "true"
+          pr_reviewer.publish_error_details: "true"
           skills.enabled: ${{ steps.reviewer-skills.outputs.enabled }}
           skills.paths: ${{ steps.reviewer-skills.outputs.paths }}
           skills.max_skills_tokens: ${{ steps.reviewer-skills.outputs.max_tokens }}
