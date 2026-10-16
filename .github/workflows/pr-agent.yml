@@ -158,7 +158,13 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GOOGLE_GENERATIVE_AI_API_KEY }}
           config.model: "openai/nvidia/nemotron-3.5-super-vl-120b-a12b"
           config.fallback_models: '["gemini/gemini-3.7-flash","openai/nvidia/nemotron-3.5-lightning-30b-a3b"]'
-          config.custom_model_max_tokens: "32000"
+          # NVIDIA Build advertises 262K context for this endpoint. A 32K
+          # artificial cap excluded 17/20 changed files in real MDE PR #342.
+          # Keep a bounded 64K context and 16K completion allowance.
+          config.custom_model_max_tokens: "64000"
+          # PR-Agent v0.46 otherwise stops after three diff chunks, leaving
+          # unreviewed files even when every submitted chunk succeeds.
+          pr_reviewer.max_number_of_calls: "6"
           # Real 24k-token PR chunks needed ~13k reasoning tokens before final YAML.
           # This NVIDIA Build model supports up to 16384 output tokens; keep it bounded.
           config.max_output_tokens: "16384"
