@@ -32,7 +32,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     outputs:
-      review_command: ${{ steps.review-mode.outputs.review_command }}
+      review_command: ${{ steps.review-stamp.outputs.review_command }}
 
     steps:
       - name: Checkout trusted caller policy
@@ -183,6 +183,7 @@ jobs:
           github_action_config.push_commands: ${{ steps.review-mode.outputs.push_commands }}
 
       - name: Stamp exact review identity
+        id: review-stamp
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           REVIEW_COMMAND: ${{ steps.review-mode.outputs.review_command }}
@@ -196,8 +197,8 @@ jobs:
             const startedAt = Number(process.env.REVIEW_STARTED_AT);
             const baseSha = process.env.BASE_SHA;
             const headSha = process.env.HEAD_SHA;
-            const envelope = (type) =>
-              `<!-- mde-agent-review:v1 base=${baseSha} head=${headSha} command="${expectedCommand}" type=${type} -->`;
+            const envelope = (type, command) =>
+              `<!-- mde-agent-review:v1 base=${baseSha} head=${headSha} command="${command}" type=${type} -->`;
             const isStandalone = (body) =>
               body.includes("## Standalone PR Review") &&
               body.includes("PR-Agent could not safely update the persistent review") &&
@@ -212,6 +213,29 @@ jobs:
               return null;
             };
 
+            // PR-Agent can switch /review -i to a full /review when it cannot
+            // anchor incremental commits. Trust that switch only when the newly
+            // published persistent state records this exact, complete PR head.
+            const fullReviewForCurrentHead = (body) => {
+              if (commandForBody(body) !== "/review") return false;
+              const markers = [...body.matchAll(/<!-- pr-agent-review-state:v1\s*\n([\s\S]*?)\n-->/g)];
+              if (markers.length !== 1) return false;
+              try {
+                const state = JSON.parse(markers[0][1]);
+                return state.last_run?.complete === true &&
+                  state.last_run?.head_sha?.toLowerCase() === headSha.toLowerCase();
+              } catch {
+                return false;
+              }
+            };
+            const publishedCommandFor = (body) => {
+              if (isStandalone(body)) return expectedCommand;
+              const published = commandForBody(body);
+              if (published === expectedCommand) return published;
+              if (expectedCommand === "/review -i" && fullReviewForCurrentHead(body)) return "/review";
+              return null;
+            };
+
             let candidate = null;
             for (let attempt = 1; attempt <= 3 && !candidate; attempt += 1) {
               const comments = await github.paginate(github.rest.issues.listComments, {
@@ -223,7 +247,7 @@ jobs:
               const fresh = comments.filter((comment) =>
                 comment.user?.login === "github-actions[bot]" &&
                 new Date(comment.updated_at).getTime() >= startedAt &&
-                (isStandalone(comment.body ?? "") || commandForBody(comment.body ?? "") === expectedCommand),
+                publishedCommandFor(comment.body ?? "") !== null,
               );
               if (fresh.length > 1) {
                 core.setFailed(`INVALID_ENVELOPE: ${fresh.length} fresh PR-Agent review results are ambiguous`);
@@ -243,7 +267,12 @@ jobs:
               core.setFailed("EMPTY_REVIEW: PR-Agent published an empty review result");
               return;
             }
-            const body = `${envelope(type)}\n${original}`;
+            const publishedCommand = publishedCommandFor(original);
+            if (!publishedCommand) {
+              core.setFailed("WRONG_COMMAND: published review cannot be tied to the requested command");
+              return;
+            }
+            const body = `${envelope(type, publishedCommand)}\n${original}`;
             try {
               await github.rest.issues.updateComment({
                 owner: context.repo.owner,
@@ -251,6 +280,9 @@ jobs:
                 comment_id: candidate.id,
                 body,
               });
+              // The verifier must compare the command actually published, not
+              // the incremental command originally requested before fallback.
+              core.setOutput("review_command", publishedCommand);
             } catch (error) {
               core.setFailed(`GITHUB_UPDATE_FAILED: ${error.message}`);
             }
