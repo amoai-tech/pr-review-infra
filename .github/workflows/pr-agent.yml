@@ -154,11 +154,13 @@ jobs:
           config.model: "openai/nvidia/nemotron-3.5-super-vl-120b-a12b"
           config.fallback_models: '["openai/nvidia/nemotron-3.5-lightning-30b-a3b"]'
           config.custom_model_max_tokens: "32000"
-          # Reasoning consumes completion tokens; leave enough room for an actual YAML review.
-          config.max_output_tokens: "8192"
+          # Real 24k-token PR chunks needed ~13k reasoning tokens before final YAML.
+          # This NVIDIA Build model supports up to 16384 output tokens; keep it bounded.
+          config.max_output_tokens: "16384"
           config.reasoning_effort: "low"
           config.additional_reasoning_effort_models: '["openai/nvidia/nemotron-3.5-super-vl-120b-a12b"]'
-          config.ai_timeout: "120"
+          # A successful live large-chunk replay needed 143 seconds; allow headroom.
+          config.ai_timeout: "180"
           config.retry_same_model_on_timeout: "false"
           config.num_retries: "0"
           # Avoid the stalled aiohttp transport observed in the existing PR-Agent incident.
