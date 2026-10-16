@@ -10,6 +10,8 @@ on:
     secrets:
       NVIDIA_API_KEY:
         required: true
+      GOOGLE_GENERATIVE_AI_API_KEY:
+        required: false
 
 permissions:
   actions: read
@@ -151,8 +153,11 @@ jobs:
           # Use LiteLLM OpenAI adapter for NVIDIA Build: it honours max_retries=0.
           OPENAI_API_BASE: "https://integrate.api.nvidia.com/v1"
           OPENAI_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          # A separate Gemini provider avoids correlated NVIDIA primary/fallback outages.
+          # Optional to preserve existing callers; a missing key falls through to Lightning.
+          GEMINI_API_KEY: ${{ secrets.GOOGLE_GENERATIVE_AI_API_KEY }}
           config.model: "openai/nvidia/nemotron-3.5-super-vl-120b-a12b"
-          config.fallback_models: '["openai/nvidia/nemotron-3.5-lightning-30b-a3b"]'
+          config.fallback_models: '["gemini/gemini-3.7-flash","openai/nvidia/nemotron-3.5-lightning-30b-a3b"]'
           config.custom_model_max_tokens: "32000"
           # Real 24k-token PR chunks needed ~13k reasoning tokens before final YAML.
           # This NVIDIA Build model supports up to 16384 output tokens; keep it bounded.
