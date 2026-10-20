@@ -125,6 +125,36 @@ test("live-head publication guard rejects both head and base races before any Gi
   assert.match(movedBase.failed[0], /STALE_PR_REVISION/);
 });
 
+test("retirement cannot replace a newer head's fix prompt from a superseded review run", async () => {
+  const start = file.indexOf("  retire-stale-fix-prompt:");
+  assert.ok(start > 0);
+  const retire = file.slice(start);
+  const liveAt = retire.indexOf("const { data: livePr } = await github.rest.pulls.get(");
+  const commentsAt = retire.indexOf("const comments = await github.paginate(github.rest.issues.listComments");
+  assert.ok(liveAt >= 0 && commentsAt > liveAt, "retirement must check the live revision before reading/updating comments");
+  const snippet = retire.slice(liveAt, commentsAt).split("\n").map((line) =>
+    line.startsWith("            ") ? line.slice(12) : line
+  ).join("\n");
+  const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+  const invokeGuard = new AsyncFunction("github", "context", "core", snippet + '\nreturn "current";');
+  const context = { repo: { owner: "amoai-tech", repo: "mdeai" }, payload: {
+    pull_request: { number: 422, base: { sha: base }, head: { sha: head } }
+  }};
+  const run = async (liveHead, liveBase) => {
+    const messages = [];
+    const github = {rest:{pulls:{get:async()=>({data:{head:{sha:liveHead},base:{sha:liveBase}}})}}};
+    const response = await invokeGuard(github, context, {info:(text)=>messages.push(text)});
+    return {response,messages};
+  };
+  assert.equal((await run(head,base)).response, "current");
+  const movedHead = await run(stale,base);
+  assert.equal(movedHead.response, undefined);
+  assert.match(movedHead.messages[0], /superseded/);
+  const movedBase = await run(head,stale);
+  assert.equal(movedBase.response, undefined);
+  assert.match(movedBase.messages[0], /superseded/);
+});
+
 test("global processing budget matches the custom-model budget (prevents 32K silent pruning)", () => {
   const globalLimit = file.match(/config\.max_model_tokens: "(\d+)"/);
   const customLimit = file.match(/config\.custom_model_max_tokens: "(\d+)"/);
