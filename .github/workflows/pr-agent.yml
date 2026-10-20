@@ -394,6 +394,20 @@ jobs:
             }
             const renderer = await import(pathToFileURL(rendererPath).href);
             const commentApi = await import(pathToFileURL(commentPath).href);
+            // A push or base update can race the publication step. Do not ground findings in the
+            // live diff unless it still belongs to this exact verified base/head pair.
+            const { data: livePr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+            });
+            if (
+              livePr.head.sha !== context.payload.pull_request.head.sha ||
+              livePr.base.sha !== context.payload.pull_request.base.sha
+            ) {
+              core.setFailed("STALE_PR_REVISION: PR head/base changed after review; refusing to publish an obsolete fix prompt");
+              return;
+            }
             const changedFiles = await github.paginate(github.rest.pulls.listFiles, {
               owner: context.repo.owner,
               repo: context.repo.repo,
