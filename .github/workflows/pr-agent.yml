@@ -500,7 +500,7 @@ jobs:
               core.info("no fix-prompt comment exists for this pull request; nothing to retire");
               return;
             }
-            if (commentApi.publishedHeadOf(owned[0].body ?? "") === headSha.toLowerCase()) {
+            if (commentApi.publishedHeadOf(owned[0].body ?? "") === headSha) {
               core.info("the fix prompt already records the current head; leaving it current");
               return;
             }
