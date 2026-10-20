@@ -317,6 +317,7 @@ jobs:
           github-token: ${{ github.token }}
           script: |
             const { pathToFileURL } = require("url");
+            const fs = require("fs");
             const policyPath = `${process.env.GITHUB_WORKSPACE}/scripts/pr-agent/review-policy.mjs`;
             const policy = await import(pathToFileURL(policyPath).href);
             const { verifyReviewResult, appendCertification, CERT_HISTORY_MARKER } = policy;
@@ -385,7 +386,6 @@ jobs:
             // SAN-1552 · Publish one copy-ready "Prompt for AI Agents" for this exact head.
             // The renderer is imported from the trusted base checkout — never from the PR head —
             // and that same module performs the single upsert, so this job stays the only publisher.
-            const fs = require("fs");
             const rendererPath = `${process.env.GITHUB_WORKSPACE}/scripts/pr-agent/render-fix-prompt.mjs`;
             if (!fs.existsSync(rendererPath)) {
               core.info("fix-prompt renderer is absent from the trusted base checkout; skipping publication");
