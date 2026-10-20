@@ -83,6 +83,78 @@ test("large reviews have a bounded context sufficient for the 41,655-token PR #3
 });
 
 
+test("fix-prompt publication revalidates the live PR head and base before reading changed files", () => {
+  const publish = file.slice(file.indexOf("const rendererPath = \x60\x24{process.env.GITHUB_WORKSPACE}/scripts/pr-agent/render-fix-prompt.mjs\x60;"));
+  assert.match(publish, /github\.rest\.pulls\.get\(/);
+  assert.match(publish, /livePr\.head\.sha/);
+  assert.match(publish, /livePr\.base\.sha/);
+  assert.match(publish, /STALE_PR_REVISION/);
+  assert.ok(publish.indexOf("github.rest.pulls.get(") < publish.indexOf("github.paginate(github.rest.pulls.listFiles"), "revalidate before fetching diff");
+});
+
+test("live-head publication guard rejects both head and base races before any GitHub diff read", async () => {
+  const from = file.indexOf("const { data: livePr } = await github.rest.pulls.get(");
+  const to = file.indexOf("const changedFiles = await github.paginate(github.rest.pulls.listFiles", from);
+  assert.ok(from > 0 && to > from);
+  const guard = file.slice(from, to).split("\n").map((line) =>
+    line.startsWith("            ") ? line.slice(12) : line
+  ).join("\n");
+  const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+  const invokeGuard = new AsyncFunction("github", "context", "core", guard + '\nreturn "accepted";');
+  const context = { repo: { owner: "amoai-tech", repo: "mdeai" }, payload: {
+    pull_request: { number: 422, base: { sha: base }, head: { sha: head } }
+  }};
+  const run = async (liveHead, liveBase) => {
+    const failed = [], calls = [];
+    const github = {rest:{pulls:{get:async (args) => {
+      calls.push(args);
+      return {data:{head:{sha:liveHead},base:{sha:liveBase}}};
+    }}}};
+    const result = await invokeGuard(github, context, {setFailed:(msg)=>failed.push(msg)});
+    return {result,failed,calls};
+  };
+  const current = await run(head, base);
+  assert.equal(current.result, "accepted");
+  assert.deepEqual(current.failed, []);
+  assert.equal(current.calls.length, 1);
+  const movedHead = await run(stale, base);
+  assert.equal(movedHead.result, undefined);
+  assert.match(movedHead.failed[0], /STALE_PR_REVISION/);
+  const movedBase = await run(head, stale);
+  assert.equal(movedBase.result, undefined);
+  assert.match(movedBase.failed[0], /STALE_PR_REVISION/);
+});
+
+test("retirement cannot replace a newer head's fix prompt from a superseded review run", async () => {
+  const start = file.indexOf("  retire-stale-fix-prompt:");
+  assert.ok(start > 0);
+  const retire = file.slice(start);
+  const liveAt = retire.indexOf("const { data: livePr } = await github.rest.pulls.get(");
+  const commentsAt = retire.indexOf("const comments = await github.paginate(github.rest.issues.listComments");
+  assert.ok(liveAt >= 0 && commentsAt > liveAt, "retirement must check the live revision before reading/updating comments");
+  const snippet = retire.slice(liveAt, commentsAt).split("\n").map((line) =>
+    line.startsWith("            ") ? line.slice(12) : line
+  ).join("\n");
+  const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+  const invokeGuard = new AsyncFunction("github", "context", "core", snippet + '\nreturn "current";');
+  const context = { repo: { owner: "amoai-tech", repo: "mdeai" }, payload: {
+    pull_request: { number: 422, base: { sha: base }, head: { sha: head } }
+  }};
+  const run = async (liveHead, liveBase) => {
+    const messages = [];
+    const github = {rest:{pulls:{get:async()=>({data:{head:{sha:liveHead},base:{sha:liveBase}}})}}};
+    const response = await invokeGuard(github, context, {info:(text)=>messages.push(text)});
+    return {response,messages};
+  };
+  assert.equal((await run(head,base)).response, "current");
+  const movedHead = await run(stale,base);
+  assert.equal(movedHead.response, undefined);
+  assert.match(movedHead.messages[0], /superseded/);
+  const movedBase = await run(head,stale);
+  assert.equal(movedBase.response, undefined);
+  assert.match(movedBase.messages[0], /superseded/);
+});
+
 test("global processing budget matches the custom-model budget (prevents 32K silent pruning)", () => {
   const globalLimit = file.match(/config\.max_model_tokens: "(\d+)"/);
   const customLimit = file.match(/config\.custom_model_max_tokens: "(\d+)"/);
