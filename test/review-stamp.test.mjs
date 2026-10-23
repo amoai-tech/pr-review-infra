@@ -31,6 +31,29 @@ test("incremental→full fallback with exact fresh completed head uses real comm
  assert.deepEqual(x.outputs,[["review_command","/review"]]);
  assert.match(x.updates[0].body,new RegExp(`^<!-- mde-agent-review:v1 base=${base} head=${head} command="/review" type=canonical -->`));
 });
+test("clean incremental→full fallback accepts PR-Agent's exact-head header without finding state",async()=>{
+ const body=`## MDE PR Review 🔍
+<!-- pr-agent:review:full -->
+#### (Review updated until commit https://github.com/amoai-tech/mdeai/commit/${head})
+No key issues identified.`;
+ const x=await run([comment(body)]);
+ assert.deepEqual(x.failures,[]);
+ assert.deepEqual(x.outputs,[["review_command","/review"]]);
+ assert.match(x.updates[0].body,new RegExp(`^<!-- mde-agent-review:v1 base=${base} head=${head} command="/review" type=canonical -->`));
+});
+for(const [label,body] of [
+ ["stale clean header",`## MDE PR Review 🔍\n<!-- pr-agent:review:full -->\n#### (Review updated until commit https://github.com/amoai-tech/mdeai/commit/${stale})`],
+ ["wrong repository",`## MDE PR Review 🔍\n<!-- pr-agent:review:full -->\n#### (Review updated until commit https://evil.example/repo/commit/${head})`],
+ ["embedded heading",`## MDE PR Review 🔍\n<!-- pr-agent:review:full -->\n${"x".repeat(800)}\n#### (Review updated until commit https://github.com/amoai-tech/mdeai/commit/${head})`],
+ ["malformed finding state",`## MDE PR Review 🔍\n<!-- pr-agent:review:full -->\n#### (Review updated until commit https://github.com/amoai-tech/mdeai/commit/${head})\n<!-- pr-agent-review-state:v1\nBAD\n-->`],
+ ["incomplete finding state",full(head,false)],
+]) {
+ test(`clean fallback rejects ${label}`, async()=>{
+  const x=await run([comment(body)]);
+  assert.match(x.failures[0],/NO_REVIEW/);
+  assert.deepEqual(x.updates,[]);
+ });
+}
 test("ordinary incremental remains incremental",async()=>{
  const x=await run([comment("## MDE PR Review\n<!-- pr-agent:review:incremental -->")]);
  assert.deepEqual(x.failures,[]);

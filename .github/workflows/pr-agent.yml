@@ -223,19 +223,31 @@ jobs:
             };
 
             // PR-Agent can switch /review -i to a full /review when it cannot
-            // anchor incremental commits. Trust that switch only when the newly
-            // published persistent state records this exact, complete PR head.
+            // anchor incremental commits. Full reviews with findings record
+            // persistent coverage state; clean reviews may omit it (v0.46).
+            // In that clean case require PR-Agent's own exact-head header near
+            // the top of the fresh bot comment. Never infer coverage from it.
             const fullReviewForCurrentHead = (body) => {
               if (commandForBody(body) !== "/review") return false;
               const markers = [...body.matchAll(/<!-- pr-agent-review-state:v1\s*\n([\s\S]*?)\n-->/g)];
-              if (markers.length !== 1) return false;
-              try {
-                const state = JSON.parse(markers[0][1]);
-                return state.last_run?.complete === true &&
-                  state.last_run?.head_sha?.toLowerCase() === headSha.toLowerCase();
-              } catch {
-                return false;
+              if (markers.length > 1) return false;
+              if (markers.length === 1) {
+                try {
+                  const state = JSON.parse(markers[0][1]);
+                  return state.last_run?.complete === true &&
+                    state.last_run?.head_sha?.toLowerCase() === headSha.toLowerCase();
+                } catch {
+                  return false;
+                }
               }
+              // A malformed/incomplete state cannot masquerade as a clean review.
+              if (body.includes("pr-agent-review-state:v1")) return false;
+              const header = body.slice(0, 700);
+              const reviewedHead =
+                `#### (Review updated until commit https://github.com/${context.repo.owner}/${context.repo.repo}/commit/${headSha})`;
+              return header.startsWith("## MDE PR Review") &&
+                header.includes("<!-- pr-agent:review:full -->") &&
+                header.includes(reviewedHead);
             };
             const publishedCommandFor = (body) => {
               if (isStandalone(body)) return expectedCommand;
