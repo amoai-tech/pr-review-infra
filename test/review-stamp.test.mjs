@@ -99,6 +99,7 @@ test("GitHub write failure cannot claim a verified result",async()=>{
 test("large reviews have a bounded context sufficient for the 41,655-token PR #342 diff", () => {
   assert.match(file, /config\.max_model_tokens: "64000"/);
   assert.match(file, /config\.custom_model_max_tokens: "64000"/);
+  assert.match(file, /pr_reviewer\.enable_large_pr_chunking: "true"/);
   assert.match(file, /pr_reviewer\.max_number_of_calls: "6"/);
   assert.match(file, /config\.max_output_tokens: "16384"/);
   assert.match(file, /config\.ai_timeout: "180"/);
@@ -185,4 +186,11 @@ test("global processing budget matches the custom-model budget (prevents 32K sil
   assert.ok(customLimit, "custom model metadata must be supplied");
   assert.equal(Number(globalLimit[1]), 64000);
   assert.equal(globalLimit[1], customLimit[1]);
+});
+
+test("NVIDIA-only production review retains verified primary and fallback", () => {
+  assert.match(file, /config\.model: "openai\/nvidia\/nemotron-3\.5-super-vl-120b-a12b"/);
+  assert.match(file, /config\.fallback_models: '\["openai\/nvidia\/nemotron-3\.5-lightning-30b-a3b"\]'/);
+  assert.doesNotMatch(file, /GEMINI|GOOGLE_GENERATIVE_AI/);
+  assert.match(file, /OPENAI_API_KEY: \$\{\{ secrets\.NVIDIA_API_KEY \}\}/);
 });
