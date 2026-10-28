@@ -96,11 +96,16 @@ test("GitHub write failure cannot claim a verified result",async()=>{
 });
 
 
-test("large reviews have a bounded context sufficient for the 41,655-token PR #342 diff", () => {
-  assert.match(file, /config\.max_model_tokens: "64000"/);
-  assert.match(file, /config\.custom_model_max_tokens: "64000"/);
+test("large reviews use bounded 48K chunks with a coverage footer", () => {
+  assert.match(file, /config\.max_model_tokens: "48000"/);
+  assert.match(file, /config\.custom_model_max_tokens: "48000"/);
+  assert.match(file, /pr_reviewer\.enable_large_pr_chunking: "true"/);
+  assert.match(file, /pr_reviewer\.enable_review_coverage_footer: "true"/);
   assert.match(file, /pr_reviewer\.max_number_of_calls: "6"/);
+  assert.match(file, /pr_reviewer\.num_max_findings: "13"/);
   assert.match(file, /config\.max_output_tokens: "16384"/);
+  assert.match(file, /config\.reasoning_effort: "none"/);
+  assert.match(file, /config\.additional_reasoning_effort_models: /);
   assert.match(file, /config\.ai_timeout: "180"/);
   assert.match(file, /docker:\/\/pragent\/pr-agent@sha256:65e5b196e38cecd7df8a71fe29942052e081a0c6645132c2ac874df60b1760c7/);
 });
@@ -183,6 +188,13 @@ test("global processing budget matches the custom-model budget (prevents 32K sil
   const customLimit = file.match(/config\.custom_model_max_tokens: "(\d+)"/);
   assert.ok(globalLimit, "global max_model_tokens override must be supplied");
   assert.ok(customLimit, "custom model metadata must be supplied");
-  assert.equal(Number(globalLimit[1]), 64000);
+  assert.equal(Number(globalLimit[1]), 48000);
   assert.equal(globalLimit[1], customLimit[1]);
+});
+
+test("NVIDIA-only review prefers proven Super and retains Lightning backup", () => {
+  assert.match(file, /config\.model: "openai\/nvidia\/nemotron-3\.5-super-vl-120b-a12b"/);
+  assert.match(file, /config\.fallback_models: '\["openai\/nvidia\/nemotron-3\.5-lightning-30b-a3b"\]'/);
+  assert.doesNotMatch(file, /GEMINI|GOOGLE_GENERATIVE_AI/);
+  assert.match(file, /OPENAI_API_KEY: \$\{\{ secrets\.NVIDIA_API_KEY \}\}/);
 });

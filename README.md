@@ -22,9 +22,12 @@ The review-policy module must export `selectReviewCommand`, `verifyReviewResult`
 
 ## Shared production model profile
 
-- Primary: `nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b`
-- Fallback: `nvidia_nim/nvidia/nemotron-3.5-lightning-30b-a3b`
-- PR-Agent: v0.45.0 immutable container digest
+- Primary: `openai/nvidia/nemotron-3.5-super-vl-120b-a12b` (NVIDIA Build endpoint)
+- Fallback: `openai/nvidia/nemotron-3.5-lightning-30b-a3b` (NVIDIA only)
+- Oversized diffs: 48K-token review budget; chunk into up to 6 review calls and report uncovered files
+- NVIDIA Super uses answer-only reasoning_effort=none; completion tokens are reserved for the review rather than a long reasoning trace
+- Host review finding cap: 13 for two 6-finding chunks; the repository default-branch 6-finding policy otherwise marks their merged result incomplete
+- PR-Agent: v0.46.0 immutable container digest
 
 ## Caller example
 
