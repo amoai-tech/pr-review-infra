@@ -24,7 +24,7 @@ The review-policy module must export `selectReviewCommand`, `verifyReviewResult`
 
 - Primary: `openai/nvidia/nemotron-3.5-lightning-30b-a3b` (NVIDIA Build endpoint)
 - Fallback: `openai/nvidia/nemotron-3.5-super-vl-120b-a12b` (NVIDIA only)
-- Oversized diffs: 32K-token review budget; chunk into up to 6 review calls and report uncovered files
+- Oversized diffs: 48K-token review budget; chunk into up to 6 review calls and report uncovered files
 - PR-Agent: v0.46.0 immutable container digest
 
 ## Caller example

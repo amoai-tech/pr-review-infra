@@ -155,11 +155,11 @@ jobs:
           config.fallback_models: '["openai/nvidia/nemotron-3.5-super-vl-120b-a12b"]'
           # Real MDE PR #342 still logged "total tokens over limit: 32000":
           # custom_model_max_tokens only supplies unknown-model metadata, while
-          # max_model_tokens is the separate *global* 32K processing ceiling.
-          # Use a bounded 32K budget to force large diffs into smaller review chunks.
+          # max_model_tokens is the separate *global* processing ceiling.
+          # Use a bounded 48K budget to force large diffs into smaller review chunks.
           # Keep the 16K completion cap, 180-second timeout and 6-call limit.
-          config.max_model_tokens: "32000"
-          config.custom_model_max_tokens: "32000"
+          config.max_model_tokens: "48000"
+          config.custom_model_max_tokens: "48000"
           # Split oversized PR diffs into chunks, capped at six AI calls.
           # The review footer identifies any remaining uncovered files.
           pr_reviewer.enable_large_pr_chunking: "true"
