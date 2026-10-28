@@ -151,12 +151,12 @@ jobs:
           # Use LiteLLM OpenAI adapter for NVIDIA Build: it honours max_retries=0.
           OPENAI_API_BASE: "https://integrate.api.nvidia.com/v1"
           OPENAI_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
-          config.model: "openai/nvidia/nemotron-3.5-lightning-30b-a3b"
-          config.fallback_models: '["openai/nvidia/nemotron-3.5-super-vl-120b-a12b"]'
+          config.model: "openai/nvidia/nemotron-3.5-super-vl-120b-a12b"
+          config.fallback_models: '["openai/nvidia/nemotron-3.5-lightning-30b-a3b"]'
           # Real MDE PR #342 still logged "total tokens over limit: 32000":
           # custom_model_max_tokens only supplies unknown-model metadata, while
           # max_model_tokens is the separate *global* processing ceiling.
-          # Use a bounded 48K budget to force large diffs into smaller review chunks.
+          # Preserve 16K output headroom and split large diffs into 48K-budget chunks.
           # Keep the 16K completion cap, 180-second timeout and 6-call limit.
           config.max_model_tokens: "48000"
           config.custom_model_max_tokens: "48000"

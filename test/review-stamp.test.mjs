@@ -189,9 +189,9 @@ test("global processing budget matches the custom-model budget (prevents 32K sil
   assert.equal(globalLimit[1], customLimit[1]);
 });
 
-test("NVIDIA-only production review retains verified primary and fallback", () => {
-  assert.match(file, /config\.model: "openai\/nvidia\/nemotron-3\.5-lightning-30b-a3b"/);
-  assert.match(file, /config\.fallback_models: '\["openai\/nvidia\/nemotron-3\.5-super-vl-120b-a12b"\]'/);
+test("NVIDIA-only review prefers proven Super and retains Lightning backup", () => {
+  assert.match(file, /config\.model: "openai\/nvidia\/nemotron-3\.5-super-vl-120b-a12b"/);
+  assert.match(file, /config\.fallback_models: '\["openai\/nvidia\/nemotron-3\.5-lightning-30b-a3b"\]'/);
   assert.doesNotMatch(file, /GEMINI|GOOGLE_GENERATIVE_AI/);
   assert.match(file, /OPENAI_API_KEY: \$\{\{ secrets\.NVIDIA_API_KEY \}\}/);
 });
