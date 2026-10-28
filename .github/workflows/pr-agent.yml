@@ -151,20 +151,21 @@ jobs:
           # Use LiteLLM OpenAI adapter for NVIDIA Build: it honours max_retries=0.
           OPENAI_API_BASE: "https://integrate.api.nvidia.com/v1"
           OPENAI_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
-          config.model: "openai/nvidia/nemotron-3.5-super-vl-120b-a12b"
-          config.fallback_models: '["openai/nvidia/nemotron-3.5-lightning-30b-a3b"]'
+          config.model: "openai/nvidia/nemotron-3.5-lightning-30b-a3b"
+          config.fallback_models: '["openai/nvidia/nemotron-3.5-super-vl-120b-a12b"]'
           # Real MDE PR #342 still logged "total tokens over limit: 32000":
           # custom_model_max_tokens only supplies unknown-model metadata, while
           # max_model_tokens is the separate *global* 32K processing ceiling.
-          # Raise both to the same bounded 64K budget (NVIDIA advertises 262K).
-          # Keep the existing 16K completion cap, 180-second timeout and 6-call limit.
-          config.max_model_tokens: "64000"
-          config.custom_model_max_tokens: "64000"
+          # Use a bounded 32K budget to force large diffs into smaller review chunks.
+          # Keep the 16K completion cap, 180-second timeout and 6-call limit.
+          config.max_model_tokens: "32000"
+          config.custom_model_max_tokens: "32000"
           # Split oversized PR diffs into chunks, capped at six AI calls.
           # The review footer identifies any remaining uncovered files.
           pr_reviewer.enable_large_pr_chunking: "true"
+          pr_reviewer.enable_review_coverage_footer: "true"
           pr_reviewer.max_number_of_calls: "6"
-          # Real 24k-token PR chunks needed ~13k reasoning tokens before final YAML.
+          # Previous 24K-token chunks needed ~13K reasoning tokens before final YAML.
           # This NVIDIA Build model supports up to 16384 output tokens; keep it bounded.
           config.max_output_tokens: "16384"
           config.reasoning_effort: "low"
