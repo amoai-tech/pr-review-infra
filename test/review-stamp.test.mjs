@@ -103,6 +103,8 @@ test("large reviews use bounded 48K chunks with a coverage footer", () => {
   assert.match(file, /pr_reviewer\.enable_review_coverage_footer: "true"/);
   assert.match(file, /pr_reviewer\.max_number_of_calls: "6"/);
   assert.match(file, /config\.max_output_tokens: "16384"/);
+  assert.match(file, /config\.reasoning_effort: "none"/);
+  assert.match(file, /config\.additional_reasoning_effort_models: /);
   assert.match(file, /config\.ai_timeout: "180"/);
   assert.match(file, /docker:\/\/pragent\/pr-agent@sha256:65e5b196e38cecd7df8a71fe29942052e081a0c6645132c2ac874df60b1760c7/);
 });

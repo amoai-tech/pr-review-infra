@@ -165,10 +165,13 @@ jobs:
           pr_reviewer.enable_large_pr_chunking: "true"
           pr_reviewer.enable_review_coverage_footer: "true"
           pr_reviewer.max_number_of_calls: "6"
-          # Previous 24K-token chunks needed ~13K reasoning tokens before final YAML.
-          # This NVIDIA Build model supports up to 16384 output tokens; keep it bounded.
+          # Preserve ample output headroom for review YAML. With Super reasoning
+          # disabled, completion tokens serve the review instead of its trace.
           config.max_output_tokens: "16384"
-          config.reasoning_effort: "low"
+          # NVIDIA Super can spend its 16K output budget on reasoning;
+          # request the provider-supported answer-only mode for bounded PR reviews.
+          # File coverage and exact-head verification remain unchanged.
+          config.reasoning_effort: "none"
           config.additional_reasoning_effort_models: '["openai/nvidia/nemotron-3.5-super-vl-120b-a12b"]'
           # A successful live large-chunk replay needed 143 seconds; allow headroom.
           config.ai_timeout: "180"
