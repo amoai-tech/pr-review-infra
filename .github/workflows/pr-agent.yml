@@ -175,8 +175,11 @@ jobs:
           # No chain-of-thought budget is requested; preserve exact-head verification.
           config.reasoning_effort: "none"
           config.additional_reasoning_effort_models: '[]'
-          # Faster hosted primary, different-family hosted fallback, 120 seconds each.
-          config.ai_timeout: "120"
+          # A ~33K-token diff needs more than 120 s per attempt on this endpoint: MDE PR #642
+          # failed twice at exactly 2 x 120 s (primary + fallback) with no findings published,
+          # while smaller PRs passed inside the budget. A live large-chunk replay previously
+          # needed 143 s. Keep the same strict, fail-closed review and give it real headroom.
+          config.ai_timeout: "300"
           config.retry_same_model_on_timeout: "false"
           config.num_retries: "0"
           # Avoid the stalled aiohttp transport observed in the existing PR-Agent incident.
