@@ -170,8 +170,11 @@ jobs:
           # Permit up to 12 merged findings; 13+ still fails completeness.
           # This host env override takes precedence over MDE main .pr_agent.toml.
           pr_reviewer.num_max_findings: "13"
-          # Use 8K output tokens to bound completion latency while allowing concise review YAML.
-          config.max_output_tokens: "8192"
+          # 8K was too small for a feature-sized diff: MDE PR #642 logged
+          # "Empty content in model response (finish_reason: length)" at 98 s — the model
+          # spent its whole completion budget before writing any review YAML — and the
+          # fallback then timed out. Restore 16K so the same strict review can answer.
+          config.max_output_tokens: "16384"
           # No chain-of-thought budget is requested; preserve exact-head verification.
           config.reasoning_effort: "none"
           config.additional_reasoning_effort_models: '[]'
