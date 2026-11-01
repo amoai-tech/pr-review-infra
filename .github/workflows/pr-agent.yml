@@ -143,7 +143,7 @@ jobs:
         run: echo "epoch_ms=$(($(date +%s) * 1000))" >> "$GITHUB_OUTPUT"
 
       - name: Review pull request
-        uses: docker://pragent/pr-agent@sha256:65e5b196e38cecd7df8a71fe29942052e081a0c6645132c2ac874df60b1760c7 # v0.46.0
+        uses: docker://pragent/pr-agent@sha256:b1ed6e8de56eb4d6e4169ee0d5c209bb5ed1ef071a01c0c042c64b80192a785c # v0.49.0-github_action
         env:
           GITHUB_TOKEN: ${{ github.token }}
           ARTIFACT_PATH: ".pr-agent/evidence.md"
