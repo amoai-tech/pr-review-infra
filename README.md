@@ -19,8 +19,12 @@ incomplete or duplicate changed filenames, missing rename provenance, and
 GitHub's ambiguous 3,000-file API cap. It saves only the verified paths in
 `.pr-agent/changed-files.json`. This is a manifest integrity preflight, not
 a claim about the model's hidden inputs. Review command selection remains
-owned by the trusted caller's `scripts/pr-agent/review-policy.mjs` and should
-return `/review` for all automatic events.
+owned by the trusted caller's `scripts/pr-agent/review-policy.mjs` and may
+retain a compatibility selector returning `/review`, but the **shared workflow**
+is the canonical execution owner and always enforces full `/review` mode,
+including synchronize/rebase events before the caller policy reaches main.
+This removes the comment-history API call and stops old base policy from
+re-enabling `/review -i`.
 
 ## Required caller-local files
 
@@ -29,7 +33,7 @@ return `/review` for all automatic events.
 - `scripts/pr-agent/review-policy.mjs`
 - `package-lock.json`
 
-The review-policy module must export `selectReviewCommand`, `verifyReviewResult`, `appendCertification`, and `CERT_HISTORY_MARKER`.
+The review-policy module must export `verifyReviewResult`, `appendCertification`, and `CERT_HISTORY_MARKER`. Automatic review-mode selection is owned by the shared workflow; an old base-branch `selectReviewCommand` must not override its full-review command.
 
 ## Shared production model profile
 
