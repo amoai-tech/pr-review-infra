@@ -54,19 +54,56 @@ jobs:
           github-token: ${{ github.token }}
           script: |
             const fs = require("fs");
+            const repo = { owner: context.repo.owner, repo: context.repo.repo };
+            const pull_number = context.payload.pull_request.number;
+            const expectedBase = context.payload.pull_request.base.sha;
+            const expectedHead = context.payload.pull_request.head.sha;
+            const snapshot = async (stage) => {
+              const { data: pr } = await github.rest.pulls.get({ ...repo, pull_number });
+              if (pr.base.sha !== expectedBase || pr.head.sha !== expectedHead) {
+                throw new Error(`PR_SCOPE_CHANGED: ${stage} manifest: base/head no longer match the workflow event`);
+              }
+              if (!Number.isSafeInteger(pr.changed_files) || pr.changed_files < 1 || pr.changed_files >= 3000) {
+                throw new Error(`PR_SCOPE_UNAVAILABLE: ${stage} changed_files=${pr.changed_files}; GitHub lists at most 3000 files`);
+              }
+              return pr.changed_files;
+            };
+            // The GitHub PR file API is the canonical full-diff inventory, not the
+            // historical commit list selected by upstream incremental review.
+            const expectedCount = await snapshot("before");
             const files = await github.paginate(github.rest.pulls.listFiles, {
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: context.issue.number,
-              per_page: 100,
+              ...repo, pull_number, per_page: 100,
             });
-            const changedFiles = files.map((file) => file.filename);
+            if (files.length !== expectedCount) {
+              throw new Error(`PR_SCOPE_INCOMPLETE: GitHub returned ${files.length}/${expectedCount} current PR files`);
+            }
+            const changedFiles = [];
+            const seen = new Set();
+            for (const file of files) {
+              if (typeof file.filename !== "string" || !file.filename || seen.has(file.filename)) {
+                throw new Error(`PR_SCOPE_AMBIGUOUS: missing or duplicate current PR filename: ${file.filename}`);
+              }
+              if (file.status === "renamed" &&
+                  (typeof file.previous_filename !== "string" || !file.previous_filename ||
+                   file.previous_filename === file.filename)) {
+                throw new Error(`PR_SCOPE_AMBIGUOUS: renamed file lacks a distinct previous_filename: ${file.filename}`);
+              }
+              seen.add(file.filename);
+              changedFiles.push(file.filename);
+            }
+            // Prevent PR pushes/rebases while paginating from producing a stale
+            // but apparently complete manifest. Verify metadata twice.
+            const afterCount = await snapshot("after");
+            if (afterCount !== expectedCount) {
+              throw new Error(`PR_SCOPE_CHANGED: changed_files moved from ${expectedCount} to ${afterCount}`);
+            }
             fs.mkdirSync(`${process.env.GITHUB_WORKSPACE}/.pr-agent`, { recursive: true });
             fs.writeFileSync(
               `${process.env.GITHUB_WORKSPACE}/.pr-agent/changed-files.json`,
               JSON.stringify(changedFiles),
               "utf8",
             );
+            core.info(`PR_SCOPE_VERIFIED: ${changedFiles.length} current PR files for ${expectedBase.slice(0, 12)}..${expectedHead.slice(0, 12)}`);
             core.setOutput("files", JSON.stringify(changedFiles));
 
       - name: Checkout PR head lockfile as untrusted data
