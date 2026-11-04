@@ -40,7 +40,7 @@ The review-policy module must export `verifyReviewResult`, `appendCertification`
 - Primary: `openai/nvidia/nemotron-3.5-lightning-30b-a3b` (NVIDIA Build endpoint)
 - Fallback: `openai/nvidia/nemotron-3.5-super-vl-120b-a12b` (NVIDIA only)
 - Oversized diffs: 40K-token review budget; chunk into up to 6 review calls and report uncovered files
-- NVIDIA models use reasoning_effort=none; completion tokens are reserved for the review rather than a long reasoning trace
+- NVIDIA completion safety (SAN-1609): `litellm.extra_body='{"chat_template_kwargs":{"enable_thinking":false}}'` explicitly disables thinking on *both* NVIDIA models. The existing `config.reasoning_effort=none` alone may be omitted on these OpenAI-compatible IDs. This preserves the 16K output cap for actual review YAML rather than losing the response to an internal thinking trace. We did **not** shrink the current PR file inventory, loosen coverage certification or increase provider retries.
 - Host review finding cap: 13 for two 6-finding chunks; the repository default-branch 6-finding policy otherwise marks their merged result incomplete
 - PR-Agent: v0.49.0 immutable container digest
 

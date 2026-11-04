@@ -200,7 +200,15 @@ jobs:
           # spent its whole completion budget before writing any review YAML — and the
           # fallback then timed out. Restore 16K so the same strict review can answer.
           config.max_output_tokens: "16384"
-          # No chain-of-thought budget is requested; preserve exact-head verification.
+          # SAN-1609: NVIDIA's OpenAI-compatible endpoint uses provider-native
+          # chat_template_kwargs to disable thinking. config.reasoning_effort
+          # alone need not reach these unknown model IDs through LiteLLM; the
+          # default thinking budget can exhaust all 16K completion tokens and
+          # return empty content (finish_reason=length) with no review YAML.
+          # Supported by both pinned NVIDIA models and PR-Agent v0.49.0's
+          # LITELLM.EXTRA_BODY path. Keep the same 40K input, 16K output,
+          # six-chunk coverage, fallback and exact-head fail-closed verifier.
+          litellm.extra_body: '{"chat_template_kwargs":{"enable_thinking":false}}'
           config.reasoning_effort: "none"
           config.additional_reasoning_effort_models: '[]'
           # A ~33K-token diff needs more than 120 s per attempt on this endpoint: MDE PR #642
