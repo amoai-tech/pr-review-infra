@@ -360,6 +360,7 @@ jobs:
         with:
           github-token: ${{ github.token }}
           script: |
+            try {
             const fs = require("node:fs");
             const { pathToFileURL } = require("node:url");
             const root = process.env.GITHUB_WORKSPACE;
@@ -408,6 +409,10 @@ jobs:
             }), "utf8");
             core.setOutput("ready", "true");
             core.info("Prepared exact full patch: " + plan.path + ", bytes=" + plan.patchBytes);
+            } catch (error) {
+              core.warning("Optional bounded recovery preparation failed: " +
+                String(error.message ?? error).slice(0, 180));
+            }
 
       - name: PR-Agent review of missing full patch
         id: recovery-model
@@ -449,6 +454,7 @@ jobs:
         with:
           github-token: ${{ github.token }}
           script: |
+            try {
             const fs = require("node:fs");
             const crypto = require("node:crypto");
             const { pathToFileURL } = require("node:url");
@@ -487,6 +493,10 @@ jobs:
             }), "utf8");
             core.setOutput("verified", "true");
             core.info("Bounded model result passed source and schema checks. Verifier must independently recheck.");
+            } catch (error) {
+              core.warning("Optional bounded recovery attestation failed: " +
+                String(error.message ?? error).slice(0, 180));
+            }
 
       # GitHub Actions artifacts are scoped to this exact workflow run. An
       # advisory comment is NEVER accepted in place of this trusted artifact.
