@@ -28,9 +28,10 @@ jobs:
       github.event.sender.type != 'Bot' &&
       github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 32
     outputs:
       review_command: ${{ steps.review-stamp.outputs.review_command }}
+      recovery_verified: ${{ steps.recovery-attest.outputs.verified }}
 
     steps:
       - name: Checkout trusted caller policy
@@ -349,6 +350,155 @@ jobs:
               core.setFailed(`GITHUB_UPDATE_FAILED: ${error.message}`);
             }
 
+      # Re-run only an explicitly omitted high-risk file. The trusted caller
+      # base supplies the blob/diff validator; the PR head is never executed.
+      - name: Prepare one exact-head recovery patch
+        id: recovery-plan
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          REVIEW_STARTED_AT: ${{ steps.review-start.outputs.epoch_ms }}
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const fs = require("node:fs");
+            const { pathToFileURL } = require("node:url");
+            const root = process.env.GITHUB_WORKSPACE;
+            const modulePath = root + "/scripts/pr-agent/prepare-recovery.mjs";
+            const policyPath = root + "/scripts/pr-agent/review-policy.mjs";
+            if (!fs.existsSync(modulePath)) {
+              core.info("Trusted base does not contain bounded-recovery module; keep existing strict verification.");
+              return;
+            }
+            const { prepareRecoveryFromGithub } = await import(pathToFileURL(modulePath).href);
+            const { parseReviewEnvelope } = await import(pathToFileURL(policyPath).href);
+            const repo = { owner: context.repo.owner, repo: context.repo.repo };
+            const pullNumber = context.payload.pull_request.number;
+            const baseSha = context.payload.pull_request.base.sha;
+            const headSha = context.payload.pull_request.head.sha;
+            const start = Number(process.env.REVIEW_STARTED_AT);
+            if (!Number.isFinite(start) || start <= 0) throw new Error("Invalid review start boundary");
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              ...repo, issue_number: pullNumber, per_page: 100,
+            });
+            const candidates = comments.filter((comment) => {
+              if (comment.user?.login !== "github-actions[bot]" ||
+                  Date.parse(comment.updated_at) < start) return false;
+              const envelope = parseReviewEnvelope(comment.body ?? "");
+              return envelope.valid && envelope.baseSha === baseSha.toLowerCase() &&
+                envelope.headSha === headSha.toLowerCase() && envelope.type === "canonical" &&
+                envelope.command === "/review" &&
+                envelope.body.includes("<!-- pr-agent:review:full -->");
+            });
+            if (candidates.length !== 1) {
+              core.info("No single current, trusted canonical review needs recovery.");
+              return;
+            }
+            const plan = await prepareRecoveryFromGithub({
+              github, ...repo, pullNumber, baseSha, headSha,
+              reviewBody: candidates[0].body,
+            });
+            if (!plan.ok) {
+              core.info("No bounded recovery: " + plan.reason);
+              return;
+            }
+            fs.mkdirSync(root + "/.pr-agent", { recursive: true });
+            fs.writeFileSync(root + "/.pr-agent/recovery.diff", plan.diff, "utf8");
+            fs.writeFileSync(root + "/.pr-agent/recovery-plan.json", JSON.stringify({
+              ...plan, diff: undefined, reviewCommentId: candidates[0].id,
+            }), "utf8");
+            core.setOutput("ready", "true");
+            core.info("Prepared exact full patch: " + plan.path + ", bytes=" + plan.patchBytes);
+
+      - name: PR-Agent review of missing full patch
+        id: recovery-model
+        if: steps.recovery-plan.outputs.ready == 'true'
+        shell: bash
+        env:
+          OPENAI_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          OPENAI_API_BASE: https://integrate.api.nvidia.com/v1
+        run: |
+          set -euo pipefail
+          image='pragent/pr-agent@sha256:b1ed6e8de56eb4d6e4169ee0d5c209bb5ed1ef071a01c0c042c64b80192a785c'
+          if docker run --rm \
+              -v "$PWD/.pr-agent:/review:rw" -w /review \
+              -e OPENAI_API_KEY -e OPENAI_API_BASE \
+              -e 'config.model=openai/nvidia/nemotron-3.5-lightning-30b-a3b' \
+              -e 'config.fallback_models=["openai/nvidia/nemotron-3.5-super-vl-120b-a12b"]' \
+              -e 'config.max_model_tokens=40000' \
+              -e 'config.custom_model_max_tokens=40000' \
+              -e 'config.max_output_tokens=8192' \
+              -e 'config.ai_timeout=180' \
+              -e 'config.num_retries=0' \
+              -e 'litellm.extra_body={"chat_template_kwargs":{"enable_thinking":false}}' \
+              -e 'litellm.disable_aiohttp=true' \
+              -e 'config.propagate_tool_errors=true' \
+              --entrypoint python "$image" \
+              -m pr_agent.cli --diff-file /review/recovery.diff \
+              --json-output /review/recovery.json --output /review/recovery.md review; then
+            if [[ -s .pr-agent/recovery.json && -s .pr-agent/recovery.md ]]; then
+              echo 'completed=true' >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo '::warning::Focused PR-Agent model review failed; strict check remains incomplete.'
+          fi
+
+      - name: Validate model output and bind trusted recovery evidence
+        id: recovery-attest
+        if: steps.recovery-model.outputs.completed == 'true'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const fs = require("node:fs");
+            const crypto = require("node:crypto");
+            const { pathToFileURL } = require("node:url");
+            const root = process.env.GITHUB_WORKSPACE;
+            let plan, diff, output;
+            try {
+              plan = JSON.parse(fs.readFileSync(root + "/.pr-agent/recovery-plan.json", "utf8"));
+              diff = fs.readFileSync(root + "/.pr-agent/recovery.diff", "utf8");
+              output = JSON.parse(fs.readFileSync(root + "/.pr-agent/recovery.json", "utf8"));
+            } catch (error) {
+              core.warning("Model evidence missing/malformed: " + String(error.message).slice(0, 150));
+              return;
+            }
+            const modulePath = root + "/scripts/pr-agent/prepare-recovery.mjs";
+            const { validateTargetedModelOutput } = await import(pathToFileURL(modulePath).href);
+            const digest = crypto.createHash("sha256").update(diff).digest("hex");
+            const checked = validateTargetedModelOutput({ output, diff, path: plan.path });
+            const { data: current } = await github.rest.pulls.get({
+              owner: context.repo.owner, repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+            });
+            if (current.base.sha !== plan.baseSha || current.head.sha !== plan.headSha ||
+                plan.baseSha !== context.payload.pull_request.base.sha ||
+                plan.headSha !== context.payload.pull_request.head.sha ||
+                !Number.isSafeInteger(plan.reviewCommentId) ||
+                digest !== plan.diffSha256 || !checked.ok || !checked.coverageComplete ||
+                checked.rejectedFindings !== 0) {
+              core.warning("Targeted result is untrusted, stale or incomplete; do not attest.");
+              return;
+            }
+            fs.writeFileSync(root + "/.pr-agent/recovery-evidence.json", JSON.stringify({
+              version: 1, baseSha: plan.baseSha, headSha: plan.headSha,
+              path: plan.path, diffSha256: digest,
+              reviewCommentId: plan.reviewCommentId,
+              modelOutput: { review: output.review, coverage: output.coverage },
+            }), "utf8");
+            core.setOutput("verified", "true");
+            core.info("Bounded model result passed source and schema checks. Verifier must independently recheck.");
+
+      # GitHub Actions artifacts are scoped to this exact workflow run. An
+      # advisory comment is NEVER accepted in place of this trusted artifact.
+      - name: Upload source-bound recovery evidence
+        if: steps.recovery-attest.outputs.verified == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: pr-agent-trusted-recovery
+          path: .pr-agent/recovery-evidence.json
+          if-no-files-found: error
+          retention-days: 1
+
   verify-review-result:
     name: verify-review-result
     needs: review
@@ -361,6 +511,13 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           persist-credentials: false
+
+      - name: Download recovery evidence from the same workflow run
+        if: needs.review.outputs.recovery_verified == 'true'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: pr-agent-trusted-recovery
+          path: .pr-agent/verified-recovery
 
       - name: Require a fresh base-aware PR-Agent review result
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
@@ -408,6 +565,63 @@ jobs:
               }
               if (!result.ok && result.code !== "NO_REVIEW") break;
             }
+            // Only the shared, trusted review job can upload this run-scoped
+            // artifact. Reconstruct the same exact GitHub blob diff and
+            // validate PR-Agent's parsed response again before certification.
+            if (!result.ok && result.code === "INCOMPLETE_REVIEW") {
+              const evidencePath = process.env.GITHUB_WORKSPACE +
+                "/.pr-agent/verified-recovery/recovery-evidence.json";
+              const modulePath = process.env.GITHUB_WORKSPACE +
+                "/scripts/pr-agent/prepare-recovery.mjs";
+              if (fs.existsSync(evidencePath) && fs.existsSync(modulePath)) {
+                try {
+                  const evidence = JSON.parse(fs.readFileSync(evidencePath, "utf8"));
+                  const { prepareRecoveryFromGithub, validateTargetedModelOutput } =
+                    await import(pathToFileURL(modulePath).href);
+                  const { parseReviewEnvelope, findFreshReviewCandidates } = policy;
+                  const candidates = findFreshReviewCandidates({ comments, startedAt })
+                    .filter((candidate) => candidate.kind === "canonical" &&
+                      candidate.envelope.valid &&
+                      candidate.envelope.baseSha === context.payload.pull_request.base.sha.toLowerCase() &&
+                      candidate.envelope.headSha === context.payload.pull_request.head.sha.toLowerCase() &&
+                      candidate.envelope.command === "/review" &&
+                      candidate.envelope.body.includes("<!-- pr-agent:review:full -->"));
+                  if (candidates.length !== 1 || evidence.version !== 1 ||
+                      evidence.baseSha !== context.payload.pull_request.base.sha ||
+                      evidence.headSha !== context.payload.pull_request.head.sha ||
+                      evidence.reviewCommentId !== candidates[0].comment.id) {
+                    throw new Error("source review identity or PR revision does not match");
+                  }
+                  const repo = { owner: context.repo.owner, repo: context.repo.repo };
+                  const plan = await prepareRecoveryFromGithub({
+                    github, ...repo, pullNumber: context.issue.number,
+                    baseSha: evidence.baseSha, headSha: evidence.headSha,
+                    reviewBody: candidates[0].comment.body,
+                  });
+                  if (!plan.ok || plan.path !== evidence.path ||
+                      plan.diffSha256 !== evidence.diffSha256) {
+                    throw new Error("reconstructed full patch or digest differs");
+                  }
+                  const checked = validateTargetedModelOutput({
+                    output: evidence.modelOutput, diff: plan.diff, path: plan.path,
+                  });
+                  if (!checked.ok || !checked.coverageComplete ||
+                      checked.rejectedFindings !== 0) {
+                    throw new Error("model output has omissions or unsupported line anchors");
+                  }
+                  result = {
+                    ok: true, code: "OK_RECOVERED",
+                    reason: "original review plus trusted model run covered the exact omitted full patch",
+                    coverageConfirmed: true, recovered: true,
+                    comment: candidates[0].comment, type: "canonical",
+                  };
+                  core.notice("PR_AGENT_COVERAGE_RECOVERED: " + plan.path +
+                    " diffSha256=" + plan.diffSha256);
+                } catch (error) {
+                  core.warning("Recovery evidence rejected: " + String(error.message).slice(0, 180));
+                }
+              }
+            }
             if (!result.ok) {
               const code = result.code === "NO_REVIEW" ? "REVIEW_TIMEOUT" : (result.code || "INVALID_ENVELOPE");
               core.setFailed(`PR-Agent verification failed [${code}]: ${result.reason || "unknown review verification failure"}`);
@@ -436,6 +650,12 @@ jobs:
               });
             }
 
+            // The single-review fix-prompt formatter cannot merge recovered
+            // findings. Suppress misleading output until combined rendering is added.
+            if (result.recovered) {
+              core.info("Combined coverage verified; not rendering a prompt from the original partial body.");
+              return;
+            }
             // SAN-1552 · Publish one copy-ready "Prompt for AI Agents" for this exact head.
             // The renderer is imported from the trusted base checkout — never from the PR head —
             // and that same module performs the single upsert, so this job stays the only publisher.
