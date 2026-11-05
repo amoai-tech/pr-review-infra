@@ -29,6 +29,9 @@ test("verifier accepts only same-run artifact and independently reconstructs sou
   assert.match(verify, /evidence\.reviewCommentId !== candidates\[0\]\.comment\.id/);
   assert.match(verify, /plan\.diffSha256 !== evidence\.diffSha256/);
   assert.match(verify, /!checked\.coverageComplete/);
+  assert.match(verify, /STALE_PR_REVISION: PR changed before review certification/);
+  assert.match(verify, /finalPr\.base\.sha !== context\.payload\.pull_request\.base\.sha/);
+  assert.match(verify, /finalPr\.head\.sha !== context\.payload\.pull_request\.head\.sha/);
   assert.match(verify, /result = \{\s*ok: true, code: "OK_RECOVERED"/);
   assert.match(verify, /if \(!result\.ok\) \{/);
   assert.doesNotMatch(verify, /core\.setNeutral\(/);
