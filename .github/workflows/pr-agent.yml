@@ -441,6 +441,39 @@ jobs:
             )?.[1];
             if (encoded) {
               try {
+                // A bot-authored comment and a matching hash are not enough:
+                // require a prior completed SUCCESS of this exact trusted
+                // PR-Agent workflow's strict verification job on this merge.
+                const priorRunId = Number(trustedPrefix.match(
+                  /\*\*Verified run:\*\* (\d+)/)?.[1]);
+                if (!Number.isSafeInteger(priorRunId) || priorRunId < 1 ||
+                    priorRunId === context.runId) {
+                  throw Error("missing independently successful prior review run");
+                }
+                const { data: priorRun } = await github.rest.actions.getWorkflowRun({
+                  ...repo, run_id: priorRunId,
+                });
+                const { data: activeRun } = await github.rest.actions.getWorkflowRun({
+                  ...repo, run_id: context.runId,
+                });
+                if (priorRun.conclusion !== "success" ||
+                    priorRun.event !== "pull_request" ||
+                    priorRun.workflow_id !== activeRun.workflow_id ||
+                    priorRun.head_sha !== activeRun.head_sha ||
+                    priorRun.head_branch !== activeRun.head_branch ||
+                    Date.parse(priorRun.created_at) >= Date.parse(activeRun.created_at) ||
+                    !priorRun.pull_requests?.some((pr) => pr.number === pullNumber)) {
+                  throw Error("prior review is not the same verified PR revision");
+                }
+                const previousJobs = await github.paginate(
+                  github.rest.actions.listJobsForWorkflowRun, {
+                    ...repo, run_id: priorRunId, per_page: 100,
+                  });
+                if (!previousJobs.some((job) =>
+                    job.name === "review / verify-review-result" &&
+                    job.conclusion === "success")) {
+                  throw Error("prior required verifier did not pass");
+                }
                 const { gunzipSync } = require("node:zlib");
                 const cached = JSON.parse(gunzipSync(
                   Buffer.from(encoded, "base64url"), { maxOutputLength: 65536 }
@@ -461,7 +494,8 @@ jobs:
                     fs.writeFileSync(".pr-agent/recovery.json", JSON.stringify(cached.output), "utf8");
                     core.setOutput("ready", "true");
                     core.setOutput("cached", "true");
-                    core.info("Revalidated trusted exact-head model output; no duplicate AI call.");
+                    core.setOutput("verified_prior_run", String(priorRunId));
+                    core.info("Revalidated previously successful strict run and exact model output; no duplicate AI call.");
                     return;
                   }
                 }
@@ -514,6 +548,7 @@ jobs:
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           REVIEW_COMMAND: ${{ needs.review.outputs.review_command }}
+          VERIFIED_PRIOR_RUN: ${{ steps.recovery-plan.outputs.verified_prior_run }}
         with:
           github-token: ${{ github.token }}
           script: |
@@ -691,6 +726,7 @@ jobs:
                   context.payload.pull_request.head.sha + "\n" +
                 "**Diff SHA-256:** " + recovered.diffSha256 + "\n" +
                 "**Reviewer profile:** " + profile + "\n" +
+                "**Verified run:** " + (process.env.VERIFIED_PRIOR_RUN || context.runId) + "\n" +
                 "**Model coverage:** no omissions reported for this targeted patch\n" +
                 (cacheLine && encodedCache.length + findings.length < 57000 ? cacheLine : "") +
                 "**Model findings withheld without changed-line proof:** " +
