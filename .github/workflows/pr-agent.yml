@@ -635,7 +635,9 @@ jobs:
                   context.payload.pull_request.head.sha + "\n" +
                 "**Diff SHA-256:** " + recovered.diffSha256 + "\n" +
                 "**Model findings withheld without changed-line proof:** " +
-                  recovered.rejectedFindings + "\n\n" +
+                  recovered.rejectedFindings + "\n" +
+                "**Additional grounded findings beyond display cap:** " +
+                  (recovered.truncatedFindings ?? 0) + "\n\n" +
                 (findings || "No actionable changed-line findings.");
               const previous = comments.find((comment) =>
                 comment.user?.login === "github-actions[bot]" &&

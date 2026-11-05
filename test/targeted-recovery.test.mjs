@@ -32,6 +32,7 @@ test("executes bounded plain-diff model without a GitHub token or executable PR 
 test("publishes grounded merged findings only after combined coverage is proven", () => {
   assert.match(verification, /if \(recovered\) \{/);
   assert.match(verification, /Model findings withheld without changed-line proof/);
+  assert.match(verification, /Additional grounded findings beyond display cap/);
   assert.match(verification, /recove(?:red|ry).?Body/);
   assert.match(verification, /mde-pr-agent-targeted-recovery:v1/);
   assert.match(verification, /appendCertification/);
