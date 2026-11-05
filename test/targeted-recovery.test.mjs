@@ -84,3 +84,18 @@ test("every github-script block is valid asynchronous JavaScript", () => {
   }
   assert.ok(count >= 4, "workflow github-script blocks were not extracted");
 });
+
+test("retry never trusts a bot cache without a prior successful required verifier", () => {
+  const prep = verification.slice(
+    verification.indexOf("Prepare bounded exact-blob recovery"),
+    verification.indexOf("Re-review missing patch with pinned PR-Agent v0.49.0"));
+  assert.match(prep, /priorRun.conclusion !== "success"/);
+  assert.match(prep, /priorRun.workflow_id !== activeRun.workflow_id/);
+  assert.match(prep, /priorRun.head_sha !== activeRun.head_sha/);
+  assert.match(prep, /priorRun.event !== "pull_request"/);
+  assert.match(prep, /job.name === "review \/ verify-review-result"/);
+  assert.match(prep, /job.conclusion === "success"/);
+  assert.match(prep, /priorRun.pull_requests\?\.some/);
+  assert.match(prep, /core.setOutput\("verified_prior_run", String\(priorRunId\)\)/);
+  assert.match(verification, /VERIFIED_PRIOR_RUN: \$\{\{ steps.recovery-plan.outputs.verified_prior_run \}\}/);
+});
