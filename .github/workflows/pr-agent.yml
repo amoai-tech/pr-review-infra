@@ -425,18 +425,49 @@ jobs:
               core.info("No safe bounded recovery: " + plan.reason);
               return;
             }
-            // Re-running the same exact PR revision must not buy the same AI
-            // review twice. Cache only trusted bot-published, complete advisory
-            // output from this exact model/profile and SHA256 source patch.
+            // Reuse only a GitHub Actions bot's earlier validated, exact-source
+            // model output. A plain model-claimed "complete" heading is NEVER
+            // sufficient. On retries, re-derive the immutable source patch and
+            // re-validate every path, line and omission before avoiding a call.
             const profile = "v0.49.0-nvidia-lightning-target-v1";
-            if (previousRecovery &&
-                (previousRecovery.body ?? "").includes("**Base/head:** " + baseSha + " / " + headSha) &&
-                (previousRecovery.body ?? "").includes("**Diff SHA-256:** " + plan.diffSha256) &&
-                (previousRecovery.body ?? "").includes("**Reviewer profile:** " + profile) &&
-                (previousRecovery.body ?? "").includes(
-                  "**Model coverage:** no omissions reported for this targeted patch")) {
-              core.info("Exact-head bounded review already published; no extra model call.");
-              return;
+            const cacheHeader = (previousRecovery?.body ?? "").startsWith(
+              marker + "\n## Verified bounded follow-up\n");
+            // Never parse the untrusted model-generated findings section as
+            // cache metadata. Only the fixed, bot-authored prefix may contain it.
+            const trustedPrefix = cacheHeader ? previousRecovery.body.split(
+              "\n**Model findings withheld without changed-line proof:**")[0] : "";
+            const encoded = trustedPrefix.match(
+              /<!-- mde-pr-agent-model-cache:v1:([A-Za-z0-9_-]{20,50000}) -->/
+            )?.[1];
+            if (encoded) {
+              try {
+                const { gunzipSync } = require("node:zlib");
+                const cached = JSON.parse(gunzipSync(
+                  Buffer.from(encoded, "base64url"), { maxOutputLength: 65536 }
+                ).toString("utf8"));
+                if (cached.v === 1 && cached.profile === profile &&
+                    cached.baseSha === baseSha && cached.headSha === headSha &&
+                    cached.path === plan.path && cached.diffSha256 === plan.diffSha256 &&
+                    cached.patchBytes === plan.patchBytes) {
+                  const { validateTargetedModelOutput } = await import(pathToFileURL(source).href);
+                  const checked = validateTargetedModelOutput({
+                    output: cached.output, diff: plan.diff, path: plan.path,
+                  });
+                  if (checked.ok && checked.coverageComplete) {
+                    fs.mkdirSync(".pr-agent", { recursive: true });
+                    fs.writeFileSync(".pr-agent/recovery.diff", plan.diff, "utf8");
+                    delete plan.diff;
+                    fs.writeFileSync(".pr-agent/recovery-plan.json", JSON.stringify(plan), "utf8");
+                    fs.writeFileSync(".pr-agent/recovery.json", JSON.stringify(cached.output), "utf8");
+                    core.setOutput("ready", "true");
+                    core.setOutput("cached", "true");
+                    core.info("Revalidated trusted exact-head model output; no duplicate AI call.");
+                    return;
+                  }
+                }
+              } catch (error) {
+                core.warning("Prior recovery cache could not be verified; evaluating fresh source.");
+              }
             }
             fs.mkdirSync(".pr-agent", { recursive: true });
             fs.writeFileSync(".pr-agent/recovery.diff", plan.diff, "utf8");
@@ -447,7 +478,7 @@ jobs:
 
       - name: Re-review missing patch with pinned PR-Agent v0.49.0
         id: recovery-model
-        if: steps.recovery-plan.outputs.ready == 'true'
+        if: steps.recovery-plan.outputs.ready == 'true' && steps.recovery-plan.outputs.cached != 'true'
         shell: bash
         env:
           OPENAI_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
@@ -573,9 +604,11 @@ jobs:
                 });
                 if (!verified.ok) throw new Error(verified.reason);
                 recovered = verified;
-                result = { ok: true, code: "RECOVERED_COVERAGE",
+                // This attests to validated review INPUT and model-reported
+                // omissions, never to semantic understanding of every hunk.
+                result = { ok: true, code: "SOURCE_BOUND_MODEL_RECOVERY",
                   coverageConfirmed: true, comment: original,
-                  reason: "Full-PR review plus one exact-blob bounded recovery verified: " +
+                  reason: "Exact-source targeted model review validated for: " +
                     verified.path };
                 core.notice("Targeted coverage recovered for " + verified.path);
               } catch (error) {
@@ -629,11 +662,37 @@ jobs:
                 "### " + finding.title + "\n**Changed lines:** " +
                 finding.startLine + "–" + finding.endLine + "\n\n" + finding.detail)
                 .join("\n\n").slice(0, 14000);
+              const { gzipSync } = require("node:zlib");
+              const profile = "v0.49.0-nvidia-lightning-target-v1";
+              const cacheRecord = { v: 1, profile,
+                baseSha: context.payload.pull_request.base.sha,
+                headSha: context.payload.pull_request.head.sha,
+                diffSha256: recovered.diffSha256,
+                patchBytes: JSON.parse(fs.readFileSync(
+                  ".pr-agent/recovery-plan.json", "utf8")).patchBytes,
+                path: recovered.path,
+                output: {
+                  review: JSON.parse(fs.readFileSync(
+                    ".pr-agent/recovery.json", "utf8")).review,
+                  coverage: JSON.parse(fs.readFileSync(
+                    ".pr-agent/recovery.json", "utf8")).coverage,
+                },
+              };
+              const encodedCache = gzipSync(Buffer.from(JSON.stringify(cacheRecord)))
+                .toString("base64url");
+              // An oversized GitHub comment must not turn successful review
+              // verification into a publication error. In that rare case,
+              // omit the cache and keep the review evidence truthful.
+              const cacheLine = encodedCache.length <= 50000 ?
+                "<!-- mde-pr-agent-model-cache:v1:" + encodedCache + " -->\n" : "";
               const recoveryBody = marker + "\n## Verified bounded follow-up\n\n" +
                 "**File:** " + recovered.path + "\n" +
                 "**Base/head:** " + context.payload.pull_request.base.sha + " / " +
                   context.payload.pull_request.head.sha + "\n" +
                 "**Diff SHA-256:** " + recovered.diffSha256 + "\n" +
+                "**Reviewer profile:** " + profile + "\n" +
+                "**Model coverage:** no omissions reported for this targeted patch\n" +
+                (cacheLine && encodedCache.length + findings.length < 57000 ? cacheLine : "") +
                 "**Model findings withheld without changed-line proof:** " +
                   recovered.rejectedFindings + "\n" +
                 "**Additional grounded findings beyond display cap:** " +

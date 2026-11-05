@@ -1,0 +1,26 @@
+name: Shared PR-Agent workflow contract tests
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/pr-agent.yml"
+      - ".github/workflows/recovery-contract-tests.yml"
+      - "test/**"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/pr-agent.yml"
+      - ".github/workflows/recovery-contract-tests.yml"
+      - "test/**"
+permissions:
+  contents: read
+jobs:
+  contracts:
+    name: recovery contract tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+      - name: Run built-in Node.js workflow tests
+        run: node --test test/*.test.mjs
