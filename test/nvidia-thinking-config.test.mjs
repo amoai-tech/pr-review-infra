@@ -21,12 +21,12 @@ test("reviewer sends the provider-native non-thinking option to both NVIDIA mode
 
 test("fix retains bounded review, fallback, full-diff and fail-closed publication", () => {
   for (const expected of [
-    'config.max_model_tokens: "40000"',
-    'config.custom_model_max_tokens: "40000"',
+    'config.max_model_tokens: "64000"',
+    'config.custom_model_max_tokens: "64000"',
     'config.max_output_tokens: "16384"',
     'pr_reviewer.enable_large_pr_chunking: "true"',
     'pr_reviewer.enable_review_coverage_footer: "true"',
-    'pr_reviewer.max_number_of_calls: "12"',
+    'pr_reviewer.max_number_of_calls: "16"',
     'config.ai_timeout: "300"',
     'config.num_retries: "0"',
     'config.propagate_tool_errors: "true"',

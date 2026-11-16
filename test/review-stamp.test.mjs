@@ -96,13 +96,13 @@ test("GitHub write failure cannot claim a verified result",async()=>{
 });
 
 
-test("large reviews use bounded 40K chunks with a coverage footer", () => {
-  assert.match(file, /config\.max_model_tokens: "40000"/);
-  assert.match(file, /config\.custom_model_max_tokens: "40000"/);
+test("large reviews use bounded 64K chunks with a coverage footer", () => {
+  assert.match(file, /config\.max_model_tokens: "64000"/);
+  assert.match(file, /config\.custom_model_max_tokens: "64000"/);
   assert.match(file, /pr_reviewer\.enable_large_pr_chunking: "true"/);
   assert.match(file, /pr_reviewer\.enable_review_coverage_footer: "true"/);
-  assert.match(file, /pr_reviewer\.max_number_of_calls: "12"/);
-  assert.match(file, /timeout-minutes: 40/);
+  assert.match(file, /pr_reviewer\.max_number_of_calls: "16"/);
+  assert.match(file, /timeout-minutes: 50/);
   assert.match(file, /pr_reviewer\.num_max_findings: "13"/);
   assert.match(file, /config\.max_output_tokens: "16384"/);
   assert.match(file, /config\.reasoning_effort: "none"/);
@@ -189,7 +189,7 @@ test("global processing budget matches the custom-model budget (prevents 32K sil
   const customLimit = file.match(/config\.custom_model_max_tokens: "(\d+)"/);
   assert.ok(globalLimit, "global max_model_tokens override must be supplied");
   assert.ok(customLimit, "custom model metadata must be supplied");
-  assert.equal(Number(globalLimit[1]), 40000);
+  assert.equal(Number(globalLimit[1]), 64000);
   assert.equal(globalLimit[1], customLimit[1]);
 });
 

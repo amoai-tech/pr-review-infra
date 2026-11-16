@@ -28,9 +28,9 @@ jobs:
       github.event.sender.type != 'Bot' &&
       github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
-    # Twelve sequential review chunks have needed ~29m at the observed 143s/chunk.
-    # Budget 40m for a real full review; incomplete/timeout still fails closed.
-    timeout-minutes: 40
+    # Sixteen sequential chunks could take ~38m at 143s/chunk.
+    # Budget 50m with headroom; incomplete/timeout still fails closed.
+    timeout-minutes: 50
     outputs:
       review_command: ${{ steps.review-stamp.outputs.review_command }}
 
@@ -183,18 +183,21 @@ jobs:
           # max_model_tokens is the separate *global* processing ceiling.
           # Canary 40K processing: 32K failed before model I/O because the
           # required prompt plus 16K output reservation left no input capacity.
-          # Keep Lightning, Super VL, 16K output, complete chunk coverage reporting
-          # and exact-head review validation unchanged.
-          config.max_model_tokens: "40000"
-          config.custom_model_max_tokens: "40000"
-          # Review all files in feature-sized PRs rather than silently limiting
-          # analysis to six chunks (MDE #892 excluded 15 of 31 changed files).
+          # The hosted model cards document up to 1M context, but the prior 40K host cap
+          # left 9/31 files out and clipped one patch on MDE #892. Increase the
+          # bounded processing budget to 64K, retaining 16K output and strict review
+          # coverage checks. Hosted endpoint acceptance still needs live certification.
+          config.max_model_tokens: "64000"
+          config.custom_model_max_tokens: "64000"
+          # MDE #892 excluded 15/31 files at six calls and still 9/31 plus one clipped
+          # patch at twelve calls with 40K processing. Allow up to sixteen chunks
+          # at 64K while preserving real model calls for every included patch.
           # Each chunk still receives an actual model review; the strict caller
           # verifier rejects any omitted/failed chunk. Do not infer coverage from
           # this budget alone. Additional calls increase cost for large PRs.
           pr_reviewer.enable_large_pr_chunking: "true"
           pr_reviewer.enable_review_coverage_footer: "true"
-          pr_reviewer.max_number_of_calls: "12"
+          pr_reviewer.max_number_of_calls: "16"
           # PR-Agent compares the MERGED finding count against this host cap.
           # Leave the existing strict findings cap in place: a review that
           # exceeds it still fails rather than silently claiming completeness.
@@ -211,7 +214,7 @@ jobs:
           # default thinking budget can exhaust all 16K completion tokens and
           # return empty content (finish_reason=length) with no review YAML.
           # Supported by both pinned NVIDIA models and PR-Agent v0.49.0's
-          # LITELLM.EXTRA_BODY path. Keep the same 40K input, 16K output,
+          # LITELLM.EXTRA_BODY path. Keep the larger 64K processing, 16K output,
           # chunk coverage reporting, fallback and exact-head fail-closed verifier.
           litellm.extra_body: '{"chat_template_kwargs":{"enable_thinking":false}}'
           config.reasoning_effort: "none"
