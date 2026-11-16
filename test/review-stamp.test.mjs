@@ -101,7 +101,7 @@ test("large reviews use bounded 40K chunks with a coverage footer", () => {
   assert.match(file, /config\.custom_model_max_tokens: "40000"/);
   assert.match(file, /pr_reviewer\.enable_large_pr_chunking: "true"/);
   assert.match(file, /pr_reviewer\.enable_review_coverage_footer: "true"/);
-  assert.match(file, /pr_reviewer\.max_number_of_calls: "6"/);
+  assert.match(file, /pr_reviewer\.max_number_of_calls: "12"/);
   assert.match(file, /pr_reviewer\.num_max_findings: "13"/);
   assert.match(file, /config\.max_output_tokens: "16384"/);
   assert.match(file, /config\.reasoning_effort: "none"/);

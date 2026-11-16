@@ -26,7 +26,7 @@ test("fix retains bounded review, fallback, full-diff and fail-closed publicatio
     'config.max_output_tokens: "16384"',
     'pr_reviewer.enable_large_pr_chunking: "true"',
     'pr_reviewer.enable_review_coverage_footer: "true"',
-    'pr_reviewer.max_number_of_calls: "6"',
+    'pr_reviewer.max_number_of_calls: "12"',
     'config.ai_timeout: "300"',
     'config.num_retries: "0"',
     'config.propagate_tool_errors: "true"',
