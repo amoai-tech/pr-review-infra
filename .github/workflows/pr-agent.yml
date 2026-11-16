@@ -181,18 +181,21 @@ jobs:
           # max_model_tokens is the separate *global* processing ceiling.
           # Canary 40K processing: 32K failed before model I/O because the
           # required prompt plus 16K output reservation left no input capacity.
-          # Keep Lightning, Super VL, 16K output, six calls, coverage reporting
+          # Keep Lightning, Super VL, 16K output, complete chunk coverage reporting
           # and exact-head review validation unchanged.
           config.max_model_tokens: "40000"
           config.custom_model_max_tokens: "40000"
-          # Split oversized PR diffs into chunks, capped at six AI calls.
-          # The review footer identifies any remaining uncovered files.
+          # Review all files in feature-sized PRs rather than silently limiting
+          # analysis to six chunks (MDE #892 excluded 15 of 31 changed files).
+          # Each chunk still receives an actual model review; the strict caller
+          # verifier rejects any omitted/failed chunk. Do not infer coverage from
+          # this budget alone. Additional calls increase cost for large PRs.
           pr_reviewer.enable_large_pr_chunking: "true"
           pr_reviewer.enable_review_coverage_footer: "true"
-          pr_reviewer.max_number_of_calls: "6"
-          # PR-Agent compares the MERGED finding count against this single-call
-          # limit; two chunks may legitimately contribute up to six findings each.
-          # Permit up to 12 merged findings; 13+ still fails completeness.
+          pr_reviewer.max_number_of_calls: "12"
+          # PR-Agent compares the MERGED finding count against this host cap.
+          # Leave the existing strict findings cap in place: a review that
+          # exceeds it still fails rather than silently claiming completeness.
           # This host env override takes precedence over MDE main .pr_agent.toml.
           pr_reviewer.num_max_findings: "13"
           # 8K was too small for a feature-sized diff: MDE PR #642 logged
@@ -207,7 +210,7 @@ jobs:
           # return empty content (finish_reason=length) with no review YAML.
           # Supported by both pinned NVIDIA models and PR-Agent v0.49.0's
           # LITELLM.EXTRA_BODY path. Keep the same 40K input, 16K output,
-          # six-chunk coverage, fallback and exact-head fail-closed verifier.
+          # chunk coverage reporting, fallback and exact-head fail-closed verifier.
           litellm.extra_body: '{"chat_template_kwargs":{"enable_thinking":false}}'
           config.reasoning_effort: "none"
           config.additional_reasoning_effort_models: '[]'
