@@ -28,7 +28,9 @@ jobs:
       github.event.sender.type != 'Bot' &&
       github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # Twelve sequential review chunks have needed ~29m at the observed 143s/chunk.
+    # Budget 40m for a real full review; incomplete/timeout still fails closed.
+    timeout-minutes: 40
     outputs:
       review_command: ${{ steps.review-stamp.outputs.review_command }}
 
